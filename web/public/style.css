@@ -1,0 +1,20 @@
+body, html, #map-wrapper svg, #map-wrapper canvas {
+	margin: 0;
+	padding: 0;
+}
+
+#map-wrapper svg, #map-wrapper canvas {
+    position: absolute;
+    top: 0;
+}
+svg {
+    background-color: #000;
+}
+svg text {
+    font-family: proxima-nova;
+    font-size: 12px;
+    fill: #666;
+}
+.countries {
+    fill: #333333;
+}
