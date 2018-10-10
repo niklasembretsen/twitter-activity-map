@@ -10,6 +10,8 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "express": "latest"
+    "async": "^2.6.1",
+    "cassandra-driver": "^3.5.0",
+    "express": "^4.16.3"
   }
 }
