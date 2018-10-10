@@ -18,7 +18,7 @@ const cassandraClient = new cassandra.Client({
 });
 
 // Instance to our db model
-const db =  new CassandraModel(cassandraClient); // 
+const db =  new CassandraModel(cassandraClient);
 
 
 // Serve a static folder "public" on /static
