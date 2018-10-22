@@ -1,6 +1,7 @@
 package sparkstreaming
 
 import scala.io.Source
+import java.util.Date
 
 import org.apache.spark.SparkConf
 import org.apache.spark.streaming._
@@ -26,9 +27,13 @@ object Project {
             CREATE KEYSPACE IF NOT EXISTS
             twitter_keyspace
             WITH REPLICATION = { 'class' : 'SimpleStrategy', 'replication_factor' : 1 };""")
+
+        session.execute("""
+        	DROP TABLE IF EXISTS twitter_keyspace.regions""")
+
         session.execute("""
             CREATE TABLE IF NOT EXISTS
-            twitter_keyspace.regions (bbid int PRIMARY KEY, activity bigint);""")
+            twitter_keyspace.regions (time timestamp PRIMARY KEY, bbid int, activity bigint);""")
 
 		// Remove info prints
 		Logger.getLogger("org").setLevel(Level.OFF)
@@ -81,9 +86,10 @@ object Project {
 				(getBBIdFromCoord(coordinates._1, coordinates._2, interval), 1)
 		})
 		.reduceByKey((acc, curr) => acc + curr)
+		// Add timestamp
+		.map(batch => (new Date(), batch._1, batch._2))
 		// store the result in Cassandra
-        .saveToCassandra("twitter_keyspace", "regions", SomeColumns("bbid", "activity"))
-
+        .saveToCassandra("twitter_keyspace", "regions", SomeColumns("time","bbid", "activity"))
 
 		ssc.start()
 		ssc.awaitTermination()

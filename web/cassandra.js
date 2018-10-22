@@ -11,10 +11,12 @@ class CassandraModel {
 	/**
 	 * Function that fetches all regions from Cassandra
 	 */
-	fetchRegionalData() {
+	fetchRegionalData(nowFormatted) {
 		return this.client.execute(`
-			SELECT *
-			FROM regions`
+			SELECT bbid, activity
+			FROM regions
+			WHERE time > '`+ nowFormatted +`'
+			ALLOW FILTERING`
 		);
 	}
 }

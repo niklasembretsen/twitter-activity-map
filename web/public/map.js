@@ -1,9 +1,15 @@
 document.addEventListener('DOMContentLoaded', function() {
-	fetch('/data').then(function(response) {
-		return response.json();
-	}).then(function(json) {
-		console.log(json);
-	});
+	setInterval(function() {
+		fetch('/data').then(function(response) {
+			return response.json();
+		}).then(function(json) {
+			result = new Array();
+			json.map(x => {result[x.bbid] = 0});
+			json.map(x => {result[x.bbid] = result[x.bbid] + parseInt(x.activity)});
+			console.log(json);
+		});
+	},
+	1000);
 
 	setUpMap();
 

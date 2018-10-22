@@ -7,6 +7,7 @@ var cassandra = require('cassandra-driver');
 var CassandraModel = require('./cassandra.js');
 var express = require('express');
 var path = require('path');
+var dateTime = require('node-datetime');
 
 // Create the express instance
 const server = express();
@@ -32,8 +33,12 @@ server.get('/', (req, res) => {
 
 // Listen to /data
 server.get('/data', (req, res) => {
+	var now = dateTime.create();
+	var oneMinuteAgo = dateTime.create(now.getTime() - 60000*121);
+	var timeFormatted = oneMinuteAgo.format('Y-m-d H:M:S');
+	console.log(timeFormatted)
 	// First fetch data
-	db.fetchRegionalData().then(results => {
+	db.fetchRegionalData(timeFormatted).then(results => {
 		// Send back json-result
 		res.json(results.rows);
 	});
