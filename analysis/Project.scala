@@ -29,11 +29,8 @@ object Project {
             WITH REPLICATION = { 'class' : 'SimpleStrategy', 'replication_factor' : 1 };""")
 
         session.execute("""
-        	DROP TABLE IF EXISTS twitter_keyspace.regions""")
-
-        session.execute("""
             CREATE TABLE IF NOT EXISTS
-            twitter_keyspace.regions (time timestamp PRIMARY KEY, bbid int, activity bigint);""")
+            twitter_keyspace.regions (bbid int PRIMARY KEY, latitude double, longitude double, activity bigint);""")
 
 		// Remove info prints
 		Logger.getLogger("org").setLevel(Level.OFF)
@@ -69,30 +66,69 @@ object Project {
 
 		// Strart Receive
 		val interval = 90
+		// Whole tweet
 		val stream = TwitterUtils.createFilteredStream(ssc, None, Some(locationsQuery))
 		.map(tweet => {
 			var coordinates = Option(tweet.getGeoLocation).map(l => s"${l.getLatitude},${l.getLongitude}")
 			val location = coordinates.getOrElse("(no location)")
 			location
 		})
+		// Remove tweets with no location
 		.filter(x => {
 			x != "(no location)"
 		})
+		// Remove all info except coordinates
 		.map(location => {
 			(location.split(",")(0).toDouble,location.split(",")(1).toDouble)
 		})
-		.map(
-			coordinates => {
-				(getBBIdFromCoord(coordinates._1, coordinates._2, interval), 1)
+		// Convert coordinates to a grid id
+		.map(coordinates => {
+			val idAndCoords = getBBIdFromCoord(coordinates._1, coordinates._2, interval)
+			(idAndCoords._1, (1, idAndCoords._2, idAndCoords._3))
 		})
-		.reduceByKey((acc, curr) => acc + curr)
-		// Add timestamp
-		.map(batch => (new Date(), batch._1, batch._2))
-		// store the result in Cassandra
-        .saveToCassandra("twitter_keyspace", "regions", SomeColumns("time","bbid", "activity"))
 
+		//Full outer in order to get every possible id represented
+		// Map the full outer join to remove the zeros from the merged result
+		// Three cases,  (None, some) (some, none) and (some,some)
+
+        def mappingFunc(key: Int, value: Option[(Int, Double, Double)], state: State[List[(Long, Int)]]): (Int, Double, Double, Int) = {
+            var currentSum = 0;
+            if (state.exists) {
+            	val newActivity = value.get._1
+            	var allActivity = state.get
+
+            	var continueToRemove = true
+            	while (continueToRemove && allActivity.length > 0) {
+	            	if (allActivity(0)._1 < (System.currentTimeMillis - 60000)) {
+	            		val popped :: newAllActivity = allActivity
+	            		allActivity = newAllActivity
+	            	}
+	            	else {
+	            		continueToRemove = false;
+	            	}
+            	}
+
+            	allActivity = allActivity :+ (System.currentTimeMillis, newActivity)
+            	currentSum = allActivity.foldLeft(0)((acc, curr) => acc + curr._2)
+
+                state.update(allActivity)    // Set the new state
+            } else {
+            	currentSum = value.get._1
+            	val initialState = List((System.currentTimeMillis, currentSum))
+                state.update(initialState)  // Set the initial state
+            }
+            // Return value
+            (key, value.get._2, value.get._3, currentSum)
+        }
+        val stateDstream = stream.mapWithState[List[(Long, Int)], (Int, Double, Double, Int)](StateSpec.function[Int,(Int, Double, Double),List[(Long, Int)],(Int, Double, Double, Int)](mappingFunc _))
+
+		// store the result in Cassandra
+        stateDstream.saveToCassandra("twitter_keyspace", "regions", SomeColumns("bbid", "latitude", "longitude", "activity"))
+
+		ssc.checkpoint("file:/tmp/")
 		ssc.start()
 		ssc.awaitTermination()
+		session.close()
 	}
 
 	/**
@@ -103,7 +139,7 @@ object Project {
 	 *    If interval is 90, we will get 8 boxes, indexed from 0 to 7
 	 * )
 	 */
-	def getBBIdFromCoord(lat: Double, long: Double, interval: Int): Int = {
+	def getBBIdFromCoord(lat: Double, long: Double, interval: Int): (Int, Double, Double) = {
 
 		// Get number of cols/rows in the grid
 		val numCol = 360D/interval
@@ -132,8 +168,11 @@ object Project {
 			rowIndex = Math.floor(((numRows-1)/2D) - Math.floor(rowFactor)).toInt
 		}
 
+		val centerLat = ((rowIndex+1D) * interval) - (interval/2D)
+		val centerLong = ((colIndex+1D) * interval)  - (interval/2D)
+
 		// Use number of boxes per row times the number of rows and then add number of boxes on current row
 		val bbID = (rowIndex * numCol) + colIndex
-		bbID.toInt
+		(bbID.toInt, centerLat, centerLong)
 	}
 }
