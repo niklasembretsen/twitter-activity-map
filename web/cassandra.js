@@ -11,7 +11,7 @@ class CassandraModel {
 	/**
 	 * Function that fetches all regions from Cassandra
 	 */
-	fetchRegionalData(nowFormatted) {
+	fetchRegionalData() {
 		return this.client.execute(`
 			SELECT bbid, activity, latitude, longitude
 			FROM regions

@@ -19,6 +19,17 @@ import twitter4j.FilterQuery
 
 object Project {
 	def main(args: Array[String]) {
+		// How many coordinates should a bounding box cover?
+		val interval = 5
+
+		// Make sure all bb-ids are present in the batches
+		val numOfBoxes = (360/interval)*(180/interval)
+		var allBoxes = List[(Int, (Int, Double, Double))]()
+		for (i <- 1 to numOfBoxes) {
+			val centerCoordinates = getCoordinatesFromBBID(i, interval)
+			allBoxes = allBoxes :+ (i , (0, centerCoordinates._1, centerCoordinates._2))
+		}
+
 		// connect to Cassandra and make a keyspace and table as explained in the document
         val cluster = Cluster.builder().addContactPoint("127.0.0.1").build()
         val session = cluster.connect()
@@ -67,8 +78,10 @@ object Project {
 		// Receive a batch every second
 		val ssc = new StreamingContext(sparkConf, Seconds(3))
 
+		// convert the list to a rdd
+		var allBoxesRDD = ssc.sparkContext.parallelize(allBoxes)
+
 		// Strart Receive
-		val interval = 1
 		// Whole tweet
 		val stream = TwitterUtils.createFilteredStream(ssc, None, Some(locationsQuery))
 
@@ -91,14 +104,6 @@ object Project {
 			(idAndCoords._1, (1, idAndCoords._2, idAndCoords._3))
 		})
 
-		val numOfBoxes = (360/interval)*(180/interval)
-		var allBoxes = List[(Int, (Int, Double, Double))]()
-		for (i <- 1 to numOfBoxes) {
-			val centerCoordinates = getCoordinatesFromBBID(i, interval)
-			allBoxes = allBoxes :+ (i , (0, centerCoordinates._1, centerCoordinates._2))
-		}
-		var allBoxesRDD = ssc.sparkContext.parallelize(allBoxes)
-
 		var fullMapActivity = batch.transform(x => x.fullOuterJoin(allBoxesRDD))
 
 		var fullMapActivityFiltered = fullMapActivity.map(x => {
@@ -108,12 +113,14 @@ object Project {
 			}
 		})
 
+		// Sliding window of activity
         def mappingFunc(key: Int, value: Option[(Int, Double, Double)], state: State[List[(Long, Int)]]): (Int, Double, Double, Int) = {
             var currentSum = 0;
             if (state.exists) {
             	val newActivity = value.get._1
             	var allActivity = state.get
 
+            	// Remove all entrys older than 1 minute
             	var continueToRemove = true
             	while (continueToRemove && allActivity.length > 0) {
 	            	if (allActivity(0)._1 < (System.currentTimeMillis - 60000)) {
