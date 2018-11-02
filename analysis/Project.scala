@@ -65,10 +65,11 @@ object Project {
 		val ssc = new StreamingContext(sparkConf, Seconds(3))
 
 		// Strart Receive
-		val interval = 90
+		val interval = 10
 		// Whole tweet
 		val stream = TwitterUtils.createFilteredStream(ssc, None, Some(locationsQuery))
-		.map(tweet => {
+
+		val batch = stream.map(tweet => {
 			var coordinates = Option(tweet.getGeoLocation).map(l => s"${l.getLatitude},${l.getLongitude}")
 			val location = coordinates.getOrElse("(no location)")
 			location
@@ -87,9 +88,21 @@ object Project {
 			(idAndCoords._1, (1, idAndCoords._2, idAndCoords._3))
 		})
 
-		//Full outer in order to get every possible id represented
-		// Map the full outer join to remove the zeros from the merged result
-		// Three cases,  (None, some) (some, none) and (some,some)
+		val numOfBoxes = (360/interval)*(180/interval)
+		var allBoxes = List[(Int, (Int, Double, Double))]()
+		for (i <- 1 to numOfBoxes) {
+			allBoxes = allBoxes :+ (i , (0, 0D, 0D))
+		}
+		var allBoxesRDD = ssc.sparkContext.parallelize(allBoxes)
+
+		var fullMapActivity = batch.transform(x => x.fullOuterJoin(allBoxesRDD))
+
+		var fullMapActivityFiltered = fullMapActivity.map(x => {
+			x match {
+				case (bbid: Int, (None, value: Some[(Int, Double, Double)])) => (bbid, value.get)
+				case (bbid: Int, (valTwitt: Some[(Int, Double, Double)], _)) => (bbid, valTwitt.get)
+			}
+		})
 
         def mappingFunc(key: Int, value: Option[(Int, Double, Double)], state: State[List[(Long, Int)]]): (Int, Double, Double, Int) = {
             var currentSum = 0;
@@ -120,9 +133,9 @@ object Project {
             // Return value
             (key, value.get._2, value.get._3, currentSum)
         }
-        val stateDstream = stream.mapWithState[List[(Long, Int)], (Int, Double, Double, Int)](StateSpec.function[Int,(Int, Double, Double),List[(Long, Int)],(Int, Double, Double, Int)](mappingFunc _))
+        val stateDstream = fullMapActivityFiltered.mapWithState[List[(Long, Int)], (Int, Double, Double, Int)](StateSpec.function[Int,(Int, Double, Double),List[(Long, Int)],(Int, Double, Double, Int)](mappingFunc _))
 
-		// store the result in Cassandra
+		//store the result in Cassandra
         stateDstream.saveToCassandra("twitter_keyspace", "regions", SomeColumns("bbid", "latitude", "longitude", "activity"))
 
 		ssc.checkpoint("file:/tmp/")
@@ -142,8 +155,8 @@ object Project {
 	def getBBIdFromCoord(lat: Double, long: Double, interval: Int): (Int, Double, Double) = {
 
 		// Get number of cols/rows in the grid
-		val numCol = 360D/interval
-		val numRows = 180D/interval
+		val numCol = 360/interval
+		val numRows = 180/interval
 
 		//get number of steps from middle of grid
 		val colFactor = long/interval
@@ -160,7 +173,7 @@ object Project {
 			colIndex = Math.ceil(((numCol-1)/2D) + Math.floor(colFactor)).toInt
 		}
 
-		// wtf?! ¯\_(ツ)_/¯ (same as col, but different)
+		// ¯\_(ツ)_/¯ (same as col, but different)
 		if (rowFactor < 0) {
 			rowIndex = Math.ceil(((numRows-1)/2D) - Math.ceil(rowFactor)).toInt
 		}
@@ -168,11 +181,44 @@ object Project {
 			rowIndex = Math.floor(((numRows-1)/2D) - Math.floor(rowFactor)).toInt
 		}
 
-		val centerLat = ((rowIndex+1D) * interval) - (interval/2D)
-		val centerLong = ((colIndex+1D) * interval)  - (interval/2D)
+		// Handle cases where the coodinates is -180, 180, -360 or 360
+		if (colIndex < 1) {
+			colIndex = 1
+		}
+		else if (colIndex > numCol+1) {
+			colIndex = (numCol).toInt
+		}
+
+		if (rowIndex < 1) {
+			rowIndex = 1
+		}
+		else if(rowIndex > numRows+1) {
+			rowIndex = (numRows).toInt
+		}
+
+		// Get the coordinates of the center for the specific box
+		val centerLat = (((numRows/2) - rowIndex-1) * interval) - (interval/2)
+		val centerLong = ((colIndex - 1 - (numCol/2)) * interval) + (interval/2)
 
 		// Use number of boxes per row times the number of rows and then add number of boxes on current row
 		val bbID = (rowIndex * numCol) + colIndex
+
+		if (bbID < 0) {
+			println("lat: " + lat + " long: " + long + " rowIndex: " + rowIndex + " colIndex: " + colIndex)
+			System.exit(0)
+		}
+
 		(bbID.toInt, centerLat, centerLong)
+	}
+
+	/**
+	 *
+	 */
+	def getCoordinatesFromBBID(bbid: Int, interval: Int): (Double, Double) = {
+		// Get number of cols/rows in the grid
+		val numCol = 360/interval
+		val numRows = 180/interval
+
+		var rowIndex = bbid
 	}
 }

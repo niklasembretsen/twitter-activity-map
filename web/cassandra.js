@@ -13,9 +13,9 @@ class CassandraModel {
 	 */
 	fetchRegionalData(nowFormatted) {
 		return this.client.execute(`
-			SELECT bbid, activity
+			SELECT activity, latitude, longitude
 			FROM regions
-			WHERE time > '`+ nowFormatted +`'
+			WHERE activity > 0
 			ALLOW FILTERING`
 		);
 	}

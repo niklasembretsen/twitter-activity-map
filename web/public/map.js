@@ -3,10 +3,8 @@ document.addEventListener('DOMContentLoaded', function() {
 		fetch('/data').then(function(response) {
 			return response.json();
 		}).then(function(json) {
-			result = new Array();
-			json.map(x => {result[x.bbid] = 0});
-			json.map(x => {result[x.bbid] = result[x.bbid] + parseInt(x.activity)});
 			console.log(json);
+			drawHeatMap(json);
 		});
 	},
 	1000);
@@ -32,6 +30,11 @@ var setUpMap = function () {
 
 	// Reference to the dom-element
 	div = d3.select('#map-wrapper');
+
+	// Clear the div
+	var mapWrapper = document.getElementById('map-wrapper');
+	while(mapWrapper.firstChild)
+	    mapWrapper.removeChild(mapWrapper.firstChild);
 
 	// Create the map svg(background)
 	mapLayer = div.append('svg').attr('id', 'map').attr('width', width).attr('height', height);
@@ -65,18 +68,28 @@ var drawMap =  function(error, world, dests) {
 		  .append("path")
 		  .attr("class", "country")
 		  .attr("d", path);
-	drawHeatMap();
 }
 
-var drawHeatMap = function() {
-	// convert long = 0, lat = 0 to pixels
-	var point1 = projection([0,0]);
+var drawHeatMap = function(activities) {
+
+	// Convert coordinates to pixels
+	maxActivity = 0;
+	activities = activities.map((activity) => {
+		const currActivity = activity.activity;
+
+		if(currActivity > maxActivity) {
+			maxActivity = currActivity;
+		}
+
+		const point = projection([activity.longitude, activity.latitude])
+		return [point[0], point[1], currActivity];
+	});
 
 	// Init the heatmap
 	heat = simpleheat(canvas);
 
 	// Add reference data to the heatmap
-	heat.data([[point1[0],point1[1],10000],[100,100,10000],[50,50,10000]])
+	heat.data(activities);
 
 	// set point radius and blur radius (25 and 15 by default)
 	heat.radius(10, 10);
@@ -85,7 +98,7 @@ var drawHeatMap = function() {
 	heat.gradient({0: '#114B5F', 0.5: '#E4FDE1', 1: '#F45B69'});
 
 	// set maximum for domain
-	heat.max(10000);
+	heat.max(maxActivity);
 
 	// draw into canvas, with minimum opacity threshold
 	heat.draw(0.05);
