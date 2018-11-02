@@ -7,16 +7,9 @@ document.addEventListener('DOMContentLoaded', function() {
 			drawHeatMap(json);
 		});
 	},
-	1000);
+	3000);
 
 	setUpMap();
-
-	// setTimeout(function(){
-	// 	var point1 = projection([5,5]);
-	// 	heat.data([[point1[0],point1[1],10000],[100,100,5000]]);
-	// 	heat.draw(0.05);
-	// 	console.log('now')
-	// }, 2000);
 });
 
 window.addEventListener('resize', function() {
@@ -45,7 +38,7 @@ var setUpMap = function () {
 	context = canvas.getContext("2d");
 
 	// Used to calculate long, lat to pixels
-	projection = d3.geoMercator().translate([width/2, height/2]);
+	projection = d3.geoMercator().translate([width/2, height/2]); //.scale(width / 2 / Math.PI).translate([width/2, height/2]);
 	path = d3.geoPath(projection);
 
 	// Fetch the countries and then draw map
@@ -75,7 +68,7 @@ var drawHeatMap = function(activities) {
 	// Convert coordinates to pixels
 	maxActivity = 0;
 	activities = activities.map((activity) => {
-		const currActivity = activity.activity;
+		const currActivity = parseInt(activity.activity);
 
 		if(currActivity > maxActivity) {
 			maxActivity = currActivity;
@@ -84,7 +77,6 @@ var drawHeatMap = function(activities) {
 		const point = projection([activity.longitude, activity.latitude])
 		return [point[0], point[1], currActivity];
 	});
-
 	// Init the heatmap
 	heat = simpleheat(canvas);
 
@@ -92,14 +84,14 @@ var drawHeatMap = function(activities) {
 	heat.data(activities);
 
 	// set point radius and blur radius (25 and 15 by default)
-	heat.radius(10, 10);
+	heat.radius(20, 20);
 
 	// optionally customize gradient colors, e.g. below
 	heat.gradient({0: '#114B5F', 0.5: '#E4FDE1', 1: '#F45B69'});
 
 	// set maximum for domain
-	heat.max(maxActivity);
+	heat.max(maxActivity - (maxActivity/4));
 
 	// draw into canvas, with minimum opacity threshold
-	heat.draw(0.05);
+	heat.draw(0.0005);
 }

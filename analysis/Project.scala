@@ -24,6 +24,9 @@ object Project {
         val session = cluster.connect()
 
         session.execute("""
+        	DROP KEYSPACE IF EXISTS twitter_keyspace;""")
+
+        session.execute("""
             CREATE KEYSPACE IF NOT EXISTS
             twitter_keyspace
             WITH REPLICATION = { 'class' : 'SimpleStrategy', 'replication_factor' : 1 };""")
@@ -65,7 +68,7 @@ object Project {
 		val ssc = new StreamingContext(sparkConf, Seconds(3))
 
 		// Strart Receive
-		val interval = 10
+		val interval = 1
 		// Whole tweet
 		val stream = TwitterUtils.createFilteredStream(ssc, None, Some(locationsQuery))
 
@@ -91,7 +94,8 @@ object Project {
 		val numOfBoxes = (360/interval)*(180/interval)
 		var allBoxes = List[(Int, (Int, Double, Double))]()
 		for (i <- 1 to numOfBoxes) {
-			allBoxes = allBoxes :+ (i , (0, 0D, 0D))
+			val centerCoordinates = getCoordinatesFromBBID(i, interval)
+			allBoxes = allBoxes :+ (i , (0, centerCoordinates._1, centerCoordinates._2))
 		}
 		var allBoxesRDD = ssc.sparkContext.parallelize(allBoxes)
 
@@ -182,23 +186,23 @@ object Project {
 		}
 
 		// Handle cases where the coodinates is -180, 180, -360 or 360
-		if (colIndex < 1) {
-			colIndex = 1
+		if (colIndex < 0) {
+			colIndex = 0
 		}
-		else if (colIndex > numCol+1) {
-			colIndex = (numCol).toInt
+		else if (colIndex > numCol) {
+			colIndex = (numCol-1).toInt
 		}
 
-		if (rowIndex < 1) {
-			rowIndex = 1
+		if (rowIndex < 0) {
+			rowIndex = 0
 		}
-		else if(rowIndex > numRows+1) {
-			rowIndex = (numRows).toInt
+		else if(rowIndex > numRows) {
+			rowIndex = (numRows-1).toInt
 		}
 
 		// Get the coordinates of the center for the specific box
-		val centerLat = (((numRows/2) - rowIndex-1) * interval) - (interval/2)
-		val centerLong = ((colIndex - 1 - (numCol/2)) * interval) + (interval/2)
+		val centerLat = (((numRows/2D) - rowIndex) * interval) - (interval/2D)
+		val centerLong = ((colIndex - (numCol/2D)) * interval) + (interval/2D)
 
 		// Use number of boxes per row times the number of rows and then add number of boxes on current row
 		val bbID = (rowIndex * numCol) + colIndex
@@ -212,13 +216,20 @@ object Project {
 	}
 
 	/**
-	 *
+	 * function that returns the center coordinates for a single box with given bbid
 	 */
 	def getCoordinatesFromBBID(bbid: Int, interval: Int): (Double, Double) = {
 		// Get number of cols/rows in the grid
 		val numCol = 360/interval
 		val numRows = 180/interval
 
-		var rowIndex = bbid
+		var rowIndex = Math.floor(bbid/numRows)
+		var colIndex = bbid % numCol
+
+		// Get the coordinates of the center for the specific box
+		val centerLat = (((numRows/2D) - rowIndex) * interval) - (interval/2D)
+		val centerLong = ((colIndex - (numCol/2D)) * interval) + (interval/2D)
+
+		(centerLat, centerLong)
 	}
 }
